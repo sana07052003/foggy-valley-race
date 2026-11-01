@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Foggy Valley Race: Hill Climbing vs Simulated Annealing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+  :root { color-scheme: dark; box-sizing: border-box; --bg:#0e1a15; --card:#162a22; --line:#28463a; --ink:#e8f0e6; --mute:#93ad9e;
+          --hc:#ff8a5b; --sa:#7be0b0; --gold:#f2b84b;
+          padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { background: radial-gradient(1200px 500px at 50% -10%, #1d3a2d 0%, var(--bg) 60%); color: var(--ink); font-family: 'DM Sans', system-ui, sans-serif; }
+  h1, h2, h3 { font-family: 'Fraunces', Georgia, serif; }
+  canvas { display: block; }
+  input[type=range] { accent-color: var(--gold); width: 100%; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+  .chip { background: #0e1a15; border-radius: 10px; padding: .5rem .75rem; }
+  .lbl { font-size: 12px; color: var(--mute); }
+  .btn { border-radius: 10px; padding: .55rem 1rem; font-weight: 700; background: #28463a; transition: filter .15s; cursor: pointer; }
+  .btn:hover { filter: brightness(1.2); }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: .35rem .9rem; font-size: 14px; cursor: pointer; }
+  .pill.on { background: var(--gold); color: #0e1a15; border-color: var(--gold); font-weight: 700; }
+  .only-scholar { display: none; } body.scholar .only-scholar { display: block; } body.scholar .only-beginner { display: none; }
+  .math { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 1.5px; background: #2f4a3d; }
+</style>
+</head>
+<body>
+<div class="max-w-[1280px] mx-auto p-4 sm:p-6 space-y-5">
+
+  <!-- ===== Hero ===== -->
+  <header class="flex flex-wrap items-end justify-between gap-4">
+    <div class="max-w-3xl">
+      <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight">The Foggy Valley Race</h1>
+      <p class="only-beginner mt-2 text-lg" style="color:var(--mute)">Two hikers are lost in fog and want the lowest valley. One only walks downhill. The other sometimes walks uphill on purpose. Who finds the deepest valley?</p>
+      <p class="only-scholar mt-2 text-lg" style="color:var(--mute)">Greedy local search against Simulated Annealing (Metropolis acceptance, geometric cooling) on multimodal landscapes, with a Monte Carlo experiment to measure the difference.</p>
+    </div>
+    <div class="inline-flex rounded-xl overflow-hidden border" style="border-color:var(--line)" role="group" aria-label="Explanation level">
+      <button id="mode-b" class="pill" style="border:0;border-radius:0">Beginner</button><button id="mode-s" class="pill" style="border:0;border-radius:0">Scholar</button>
+    </div>
+  </header>
+
+  <!-- ===== Controls ===== -->
+  <section class="card p-4 grid gap-4 lg:grid-cols-[auto_1fr] items-center">
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="btnPlay" class="btn" style="background:var(--gold);color:#0e1a15;min-width:96px">Play</button>
+      <button id="btnStep" class="btn">Step</button>
+      <button id="btnReset" class="btn">New start</button>
+    </div>
+    <div class="flex flex-wrap gap-2" id="pills"></div>
+    <div id="sliders" class="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-5 gap-y-3"></div>
+  </section>
+
+  <!-- ===== Two walkers in 3D ===== -->
+  <section class="grid lg:grid-cols-2 gap-5">
+    <article class="card p-4 space-y-3" style="border-top:4px solid var(--hc)">
+      <div class="flex items-baseline justify-between gap-2"><h2 class="text-2xl font-bold" style="color:var(--hc)">Hill Climbing</h2><span class="lbl">Only steps to lower ground</span></div>
+      <div class="relative"><canvas id="v-hc" width="560" height="330" class="w-full rounded-xl"></canvas>
+        <canvas id="m-hc" width="110" height="110" class="absolute left-2 bottom-2 rounded-lg cursor-crosshair" style="border:2px solid var(--line);width:26%;height:auto;aspect-ratio:1" title="Click to set the start"></canvas></div>
+      <p id="say-hc" class="chip text-sm min-h-[3.6rem]"></p>
+      <div id="math-hc" class="only-scholar chip math"></div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="chip"><div class="lbl">Steps</div><b id="it-hc">0</b></div>
+        <div class="chip"><div class="lbl">Height now</div><b id="cur-hc">0</b></div>
+        <div class="chip"><div class="lbl">Lowest found</div><b id="best-hc" style="color:var(--hc)">0</b></div>
+      </div>
+    </article>
+    <article class="card p-4 space-y-3" style="border-top:4px solid var(--sa)">
+      <div class="flex items-baseline justify-between gap-2"><h2 class="text-2xl font-bold" style="color:var(--sa)">Simulated Annealing</h2><span class="lbl">Sometimes gambles uphill</span></div>
+      <div class="relative"><canvas id="v-sa" width="560" height="330" class="w-full rounded-xl"></canvas>
+        <canvas id="m-sa" width="110" height="110" class="absolute left-2 bottom-2 rounded-lg cursor-crosshair" style="border:2px solid var(--line);width:26%;height:auto;aspect-ratio:1" title="Click to set the start"></canvas></div>
+      <p id="say-sa" class="chip text-sm min-h-[3.6rem]"></p>
+      <div id="math-sa" class="only-scholar chip math"></div>
+      <div class="grid grid-cols-3 gap-2 text-center text-sm">
+        <div class="chip"><div class="lbl">Steps</div><b id="it-sa">0</b></div>
+        <div class="chip"><div class="lbl">Height now</div><b id="cur-sa">0</b></div>
+        <div class="chip"><div class="lbl">Lowest found</div><b id="best-sa" style="color:var(--sa)">0</b></div>
+      </div>
+    </article>
+  </section>
+  <p class="lbl text-center">Valleys are dark purple and peaks are gold. The inset is the same mountain seen from above: click it to move the start. The white trail is the path walked, and the gold ring is the best spot found.</p>
+
+  <!-- ===== Analysis row ===== -->
+  <section class="grid lg:grid-cols-3 gap-5">
+    <div class="card p-4">
+      <h3 class="text-xl font-bold">The race</h3>
+      <p class="lbl mb-2">Lowest height found so far. Lower is better; 0 is the deepest valley.</p>
+      <canvas id="chart" width="400" height="240" class="w-full rounded-lg" style="background:#0e1a15"></canvas>
+      <p class="text-xs mt-2" style="color:var(--mute)">A flat line means that hiker is stuck. A falling line means it is still finding better ground.</p>
+      <p id="verdict" class="mt-2 text-sm font-medium" style="color:var(--gold)"></p>
+    </div>
+
+    <div class="card p-4">
+      <h3 class="text-xl font-bold">The gamble dial</h3>
+      <p class="lbl mb-2">Chance of accepting a step uphill, by how steep it is.</p>
+      <canvas id="curve" width="400" height="240" class="w-full rounded-lg" style="background:#0e1a15"></canvas>
+      <div class="flex justify-between text-sm mt-3"><span>Temperature</span><b id="temp-val">0</b></div>
+      <div class="h-3 rounded-full bg-[#0e1a15] overflow-hidden mt-1"><div id="temp-bar" class="h-full" style="width:100%;background:linear-gradient(90deg,#7be0b0,#f2b84b,#ff6b4a)"></div></div>
+      <p id="temp-phase" class="text-sm mt-1 font-medium"></p>
+      <p class="only-beginner text-xs mt-1" style="color:var(--mute)">Hot: it says yes to many bad steps. Cold: almost never. Hill Climbing never says yes (flat coral line).</p>
+      <p class="only-scholar text-xs mt-1" style="color:var(--mute)">P = exp(−ΔE / T). The faint curve is the starting temperature T₀; the bright curve is the current T.</p>
+    </div>
+
+    <div class="card p-4">
+      <h3 class="text-xl font-bold">Experiment lab</h3>
+      <p class="lbl mb-2">One race can be luck. Run many from random starts and compare.</p>
+      <button id="btnLab" class="btn w-full" style="background:var(--gold);color:#0e1a15">Run 100 races</button>
+      <div id="lab" class="mt-3 text-sm space-y-3"><p style="color:var(--mute)">Uses your current settings. Counts how often each hiker ends in the deepest valley.</p></div>
+    </div>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <footer class="card p-5 grid md:grid-cols-2 gap-x-8 gap-y-5 text-sm leading-relaxed">
+    <div><h3 class="text-lg mb-1">Why does Hill Climbing get stuck?</h3><p>It only accepts lower ground. In a small dip every nearby spot is higher, so it refuses them all. That dip is a local minimum: the lowest point close by, not on the whole map.</p></div>
+    <div><h3 class="text-lg mb-1">What does temperature do?</h3><p>It sets how willing Annealing is to gamble. It starts hot and cools each step, so the hiker explores first and settles later. The name comes from slowly cooling metal.</p>
+      <p class="only-scholar mt-1">T<sub>k</sub> = T₀·α<sup>k</sup>. Guaranteed convergence needs much slower (logarithmic) cooling, so this is a practical heuristic.</p></div>
+    <div><h3 class="text-lg mb-1">Why “hill climbing” if we seek valleys?</h3><p>The name comes from searching for the highest point. We flipped the picture so lower is better. The idea is identical.</p></div>
+    <div><h3 class="text-lg mb-1">Where is this used?</h3><p>Delivery routes, timetables, chip layout and factory scheduling: problems with far too many options to check them all.</p>
+      <p class="only-scholar mt-1">Kirkpatrick, Gelatt and Vecchi, <i>Science</i> (1983); Metropolis et al. (1953); Černý (1985).</p></div>
+    <p class="md:col-span-2 pt-3 border-t" style="border-color:var(--line);color:var(--mute)">Built by <b style="color:var(--ink)">Sana</b> for the <b style="color:var(--ink)">Foundation of AI</b> course, 2026.</p>
+  </footer>
+</div>
+
+<script>
+/* =====================================================================
+ * The Foggy Valley Race
+ * Modules: CFG -> Terrain -> Heat -> Walker -> View3D -> Charts -> Lab -> App
+ * Height is "energy": lower is better. Every terrain is scaled to 0..10.
+ * ===================================================================== */
+'use strict';
+
+const CFG = {
+  B: 5, trail: 200, win: 500, N: 56,
+  sl: [
+    { id: 'step',  label: 'Step size',        min: .05, max: 2,    step: .05,   val: .4,    f: v => v.toFixed(2) },
+    { id: 'maxIt', label: 'Iterations',       min: 100, max: 5000, step: 100,   val: 2000,  f: v => v | 0 },
+    { id: 'temp0', label: 'Start temperature', min: .1, max: 10,   step: .1,    val: 1.5,   f: v => v.toFixed(1) },
+    { id: 'cool',  label: 'Cooling rate',     min: .99, max: .9995, step: .0001, val: .998, f: v => v.toFixed(4) },
+    { id: 'speed', label: 'Speed',            min: 1,   max: 20,   step: 1,     val: 3,     f: v => v | 0 },
+  ],
+  terr: { rastrigin: 'Rastrigin: a grid of near-identical dips', ackley: 'Ackley: flat edges, one deep hole', bumpy: 'Bumpy: uneven hills' },
+};
+const RAW = {
+  ackley: (x, y) => -20 * Math.exp(-.2 * Math.sqrt(.5 * (x * x + y * y))) - Math.exp(.5 * (Math.cos(2 * Math.PI * x) + Math.cos(2 * Math.PI * y))) + Math.E + 20,
+  rastrigin: (x, y) => 20 + x * x - 10 * Math.cos(2 * Math.PI * x) + y * y - 10 * Math.cos(2 * Math.PI * y),
+  bumpy: (x, y) => .1 * ((x - .8) ** 2 + (y + .6) ** 2) + Math.sin(3 * x) * Math.cos(3 * y) + .5 * Math.sin(5 * x + 2 * y) + .3 * Math.cos(7 * y),
+};
+/** Normalise heights to 0..10 and find the true deepest point (for the Experiment lab). */
+function buildTerrain(name) {
+  const raw = RAW[name], B = CFG.B; let lo = 1e9, hi = -1e9, gx = 0, gy = 0;
+  for (let i = 0; i <= 200; i++) for (let j = 0; j <= 200; j++) {
+    const x = -B + 2 * B * i / 200, y = -B + 2 * B * j / 200, v = raw(x, y);
+    if (v < lo) { lo = v; gx = x; gy = y; } if (v > hi) hi = v;
+  }
+  return { f: (x, y) => 10 * (raw(x, y) - lo) / (hi - lo), gx, gy };
+}
+
+/* ---------- Heat colours: valley purple -> peak gold ---------- */
+const Heat = {
+  s: [[0, [22, 6, 52]], [.3, [92, 26, 132]], [.55, [192, 58, 122]], [.8, [246, 132, 50]], [1, [255, 216, 72]]],
+  c(t) { t = Math.max(0, Math.min(1, t)); const s = this.s;
+    for (let i = 1; i < s.length; i++) if (t <= s[i][0]) { const [a, ca] = s[i - 1], [b, cb] = s[i], k = (t - a) / (b - a); return ca.map((v, n) => v + (cb[n] - v) * k); }
+    return s[4][1]; },
+  top(t, size) {                                       // top-down map (offscreen)
+    const o = document.createElement('canvas'); o.width = o.height = size; const x = o.getContext('2d'), im = x.createImageData(size, size), B = CFG.B;
+    for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+      const [r, g, b] = this.c(t.f(-B + 2 * B * px / size, B - 2 * B * py / size) / 10); im.data.set([r, g, b, 255], (py * size + px) * 4);
+    }
+    x.putImageData(im, 0, 0); return o;
+  },
+};
+
+/* ---------- Walker: one hiker, one rule ---------- */
+function makeWalker(algo) {
+  const cl = v => Math.max(-CFG.B, Math.min(CFG.B, v));
+  const g = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+  return { algo, s: null,
+    reset(t, x, y) { const e = t.f(x, y);
+      this.s = { x, y, e, bx: x, by: y, be: e, it: 0, rej: 0, tr: [{ x, y, e }], hist: [e], pr: null, say: 'Standing at the start. Press Play.' }; },
+    step(t, p) {
+      const s = this.s; s.T = algo === 'sa' ? p.temp0 * Math.pow(p.cool, s.it) : 0;       // geometric cooling
+      const nx = cl(s.x + g() * p.step), ny = cl(s.y + g() * p.step), ne = t.f(nx, ny), dE = ne - s.e;
+      let acc = dE <= 0, gam = false, pr = dE <= 0 ? 1 : 0;
+      if (!acc && algo === 'sa' && s.T > 1e-9) { pr = Math.exp(-dE / s.T); if (Math.random() < pr) { acc = true; gam = true; } }
+      if (acc) { s.x = nx; s.y = ny; s.e = ne; s.rej = 0; s.tr.push({ x: nx, y: ny, e: ne }); if (s.tr.length > CFG.trail) s.tr.shift();
+        if (ne < s.be) { s.be = ne; s.bx = nx; s.by = ny; } } else s.rej++;
+      s.pr = { x: nx, y: ny, e: ne, acc, gam, dE, p: pr, T: s.T }; s.it++; s.hist.push(s.be);
+      const lead = (c, t) => `<b style="color:${c}">${t}</b> `;
+      s.say = gam ? lead('#f2b84b', '↑ Gamble: go.') + `That spot is ${dE.toFixed(2)} higher, but there was a ${(pr * 100).toFixed(0)}% chance. It stepped uphill on purpose.`
+        : acc ? lead('#7be0b0', '↓ Lower: go.') + `Downhill by ${(-dE).toFixed(2)}.`
+        : algo === 'hc' && s.rej > 60 ? lead('#ff6b6b', 'Stuck.') + `${s.rej} nearby spots in a row were higher. This is a local valley, and Hill Climbing cannot leave it.`
+        : lead('#ff6b6b', '↑ Higher: stay.') + (algo === 'sa' ? `${dE.toFixed(2)} higher, and the chance was only ${(pr * 100).toFixed(1)}%.` : `${dE.toFixed(2)} higher. Hill Climbing never goes uphill.`);
+    } };
+}
+
+/* ---------- View3D: isometric terrain, drawn once, with live trail and hiker on top ---------- */
+const View3D = {
+  W: 560, H: 330,
+  P(x, y, h) { const u = (x + CFG.B) / (2 * CFG.B), v = (y + CFG.B) / (2 * CFG.B), W = this.W, H = this.H;
+    return [W * .5 + (u - v) * W * .46, H * .36 + (u + v) * H * .25 - (h / 10) * H * .30]; },
+  bake(t) {                                            // painter's algorithm: back to front
+    const o = document.createElement('canvas'); o.width = this.W; o.height = this.H; const c = o.getContext('2d'), N = CFG.N, B = CFG.B;
+    const gr = c.createLinearGradient(0, 0, 0, this.H); gr.addColorStop(0, '#1d3a2d'); gr.addColorStop(1, '#0e1a15'); c.fillStyle = gr; c.fillRect(0, 0, this.W, this.H);
+    const h = []; for (let i = 0; i <= N; i++) { h[i] = []; for (let j = 0; j <= N; j++) h[i][j] = t.f(-B + 2 * B * i / N, -B + 2 * B * j / N); }
+    c.lineJoin = 'round'; c.lineWidth = .6; c.strokeStyle = 'rgba(0,0,0,.28)';
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      const pts = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]].map(([a, b]) => this.P(-B + 2 * B * a / N, -B + 2 * B * b / N, h[a][b]));
+      const avg = (h[i][j] + h[i + 1][j] + h[i + 1][j + 1] + h[i][j + 1]) / 4, lit = Math.max(.72, Math.min(1.25, 1 + (h[i][j] - h[i + 1][j + 1]) * .07));
+      const [r, g, b] = Heat.c(avg / 10); c.fillStyle = `rgb(${Math.min(255, r * lit) | 0},${Math.min(255, g * lit) | 0},${Math.min(255, b * lit) | 0})`;
+      c.beginPath(); pts.forEach((p, k) => k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.fill(); c.stroke();
+    }
+    return o;
+  },
+  draw(c, base, s, col) {
+    c.drawImage(base, 0, 0); const n = s.tr.length; c.lineCap = 'round'; c.lineWidth = 2.4;
+    for (let i = 1; i < n; i++) { const a = this.P(s.tr[i - 1].x, s.tr[i - 1].y, s.tr[i - 1].e), b = this.P(s.tr[i].x, s.tr[i].y, s.tr[i].e);
+      c.strokeStyle = `rgba(255,255,255,${i / n * .9})`; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
+    const [bx, by] = this.P(s.bx, s.by, s.be); c.strokeStyle = '#f2b84b'; c.lineWidth = 2.5;    // best spot: gold ring
+    c.beginPath(); c.ellipse(bx, by, 11, 5.5, 0, 0, 7); c.stroke();
+    if (s.pr) { const [px, py] = this.P(s.pr.x, s.pr.y, s.pr.e); c.fillStyle = s.pr.acc ? '#7be0b0' : '#ff4d6d'; c.beginPath(); c.arc(px, py, 3, 0, 7); c.fill(); }
+    const [x, y] = this.P(s.x, s.y, s.e);                                                       // hiker: pin + head
+    c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 20); c.stroke();
+    c.fillStyle = col; c.beginPath(); c.arc(x, y - 24, 7, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+  },
+};
+
+/* ---------- Charts: race chart + gamble curve ---------- */
+const Charts = {
+  race(c, W, H, a, b) {
+    const L = 36, T = 8, Bm = 22, R = 8, tot = a.length, st = Math.max(0, tot - CFG.win), A = a.slice(st), Bb = b.slice(st), all = A.concat(Bb);
+    c.clearRect(0, 0, W, H); let lo = Math.min(...all), hi = Math.max(...all); if (hi - lo < .5) hi = lo + .5;
+    const X = i => L + i / (CFG.win - 1) * (W - L - R), Y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - Bm);
+    c.font = '11px DM Sans, sans-serif'; c.fillStyle = '#93ad9e'; c.strokeStyle = '#28463a'; c.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) { const v = lo + (hi - lo) * g / 4, y = Y(v); c.beginPath(); c.moveTo(L, y); c.lineTo(W - R, y); c.stroke(); c.textAlign = 'right'; c.fillText(v.toFixed(1), L - 4, y + 4); }
+    c.textAlign = 'left'; c.fillText('step ' + st, L, H - 6); c.textAlign = 'right'; c.fillText(String(tot - 1), W - R, H - 6);
+    const ln = (arr, col) => { c.strokeStyle = col; c.lineWidth = 2.5; c.beginPath(); arr.forEach((v, i) => i ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v))); c.stroke(); };
+    ln(A, '#ff8a5b'); ln(Bb, '#7be0b0');
+  },
+  curve(c, W, H, T, T0, pr) {                          // P(accept) versus uphill size
+    const L = 34, Tp = 10, Bm = 26, R = 10, XM = 4, X = d => L + d / XM * (W - L - R), Y = p => Tp + (1 - p) * (H - Tp - Bm);
+    c.clearRect(0, 0, W, H); c.font = '11px DM Sans, sans-serif'; c.fillStyle = '#93ad9e'; c.strokeStyle = '#28463a'; c.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) { const y = Y(g / 4); c.beginPath(); c.moveTo(L, y); c.lineTo(W - R, y); c.stroke(); c.textAlign = 'right'; c.fillText((g * 25) + '%', L - 4, y + 4); }
+    c.textAlign = 'center'; for (let d = 0; d <= XM; d++) c.fillText(d, X(d), H - 10); c.textAlign = 'right'; c.fillText('how much higher the step is', W - R, H - 0.5 - 0);
+    const curve = (t, col, w) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); for (let d = 0; d <= XM; d += .05) { const p = t > 1e-9 ? Math.exp(-d / t) : (d === 0 ? 1 : 0); d ? c.lineTo(X(d), Y(p)) : c.moveTo(X(d), Y(p)); } c.stroke(); };
+    curve(T0, 'rgba(242,184,75,.3)', 2); curve(T, '#f2b84b', 3);
+    c.strokeStyle = '#ff8a5b'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(.001), Y(0)); c.lineTo(X(XM), Y(0)); c.stroke();     // Hill Climbing: always 0
+    if (pr && pr.dE > 0 && pr.dE < XM) { c.fillStyle = '#fff'; c.beginPath(); c.arc(X(pr.dE), Y(pr.p), 5, 0, 7); c.fill(); }
+  },
+};
+
+/* ---------- Lab: Monte Carlo experiment ---------- */
+const Lab = {
+  sim(algo, t, p, x, y) {                              // headless run, returns best position and height
+    const B = CFG.B, cl = v => Math.max(-B, Math.min(B, v)), g = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+    let e = t.f(x, y), be = e, bx = x, by = y;
+    for (let k = 0; k < p.maxIt; k++) { const T = algo === 'sa' ? p.temp0 * Math.pow(p.cool, k) : 0, nx = cl(x + g() * p.step), ny = cl(y + g() * p.step), ne = t.f(nx, ny), d = ne - e;
+      if (d <= 0 || (T > 1e-9 && Math.random() < Math.exp(-d / T))) { x = nx; y = ny; e = ne; if (e < be) { be = e; bx = x; by = y; } } }
+    return { be, bx, by };
+  },
+  run(t, p, out) {
+    const n = 100, r = { hc: [], sa: [] };
+    for (let i = 0; i < n; i++) { const x = (Math.random() * 2 - 1) * 4.5, y = (Math.random() * 2 - 1) * 4.5;
+      ['hc', 'sa'].forEach(a => { const q = this.sim(a, t, p, x, y); r[a].push({ ok: Math.hypot(q.bx - t.gx, q.by - t.gy) < .5, be: q.be }); }); }
+    const card = (a, name, col) => { const ok = r[a].filter(q => q.ok).length, avg = r[a].reduce((s, q) => s + q.be, 0) / n;
+      return `<div><div class="flex justify-between items-baseline"><span style="color:${col};font-weight:700">${name}</span><span><b class="text-2xl" style="color:${col}">${ok}%</b> reached the deepest valley</span></div>
+        <div class="mt-1 leading-none">${r[a].map(q => `<i class="dot" style="${q.ok ? 'background:' + col : ''}"></i>`).join('')}</div>
+        <div class="lbl mt-1">Average best height: ${avg.toFixed(2)}</div></div>`; };
+    out.innerHTML = card('hc', 'Hill Climbing', '#ff8a5b') + card('sa', 'Simulated Annealing', '#7be0b0') +
+      '<p class="lbl">Each dot is one race from a random start. “Deepest valley” means ending within 0.5 map units of the true lowest point. Change a slider and run again to see which settings help.</p>';
+  },
+};
+
+/* ---------- App: state, controls, loop ---------- */
+const App = {
+  p: {}, run: false, key: 'rastrigin', t: null, base: null, mini: null, hc: makeWalker('hc'), sa: makeWalker('sa'),
+  $: id => document.getElementById(id),
+  init() {
+    CFG.sl.forEach(d => { this.p[d.id] = d.val; const w = document.createElement('div');
+      w.innerHTML = `<div class="flex justify-between lbl"><label for="${d.id}">${d.label}</label><b style="color:var(--ink)" id="${d.id}-v">${d.f(d.val)}</b></div><input id="${d.id}" type="range" min="${d.min}" max="${d.max}" step="${d.step}" value="${d.val}">`;
+      this.$('sliders').appendChild(w); w.querySelector('input').oninput = e => { this.p[d.id] = +e.target.value; this.$(d.id + '-v').textContent = d.f(this.p[d.id]); }; });
+    Object.entries(CFG.terr).forEach(([k, label]) => { const b = document.createElement('button'); b.className = 'pill'; b.id = 'pill-' + k; b.textContent = label;
+      b.onclick = () => { this.key = k; this.load(); this.reset(); }; this.$('pills').appendChild(b); });
+    this.c = { hc: this.$('v-hc').getContext('2d'), sa: this.$('v-sa').getContext('2d'), mh: this.$('m-hc').getContext('2d'), ms: this.$('m-sa').getContext('2d') };
+    ['hc', 'sa'].forEach(k => this.$('m-' + k).addEventListener('click', e => { const r = e.target.getBoundingClientRect(), B = CFG.B;
+      this.reset(-B + 2 * B * (e.clientX - r.left) / r.width, B - 2 * B * (e.clientY - r.top) / r.height); }));
+    this.$('btnPlay').onclick = () => this.toggle(); this.$('btnReset').onclick = () => this.reset();
+    this.$('btnStep').onclick = () => { this.setRun(false); this.adv(1); };
+    this.$('btnLab').onclick = () => { const o = this.$('lab'); o.innerHTML = '<p style="color:var(--mute)">Running 200 searches…</p>'; setTimeout(() => Lab.run(this.t, this.p, o), 30); };
+    this.$('mode-b').onclick = () => this.mode(false); this.$('mode-s').onclick = () => this.mode(true);
+    this.mode(false); this.load(); this.reset();
+  },
+  mode(s) { document.body.classList.toggle('scholar', s); this.$('mode-b').classList.toggle('on', !s); this.$('mode-s').classList.toggle('on', s); },
+  load() { this.t = buildTerrain(this.key); this.base = View3D.bake(this.t); this.mini = Heat.top(this.t, 110);
+    Object.keys(CFG.terr).forEach(k => this.$('pill-' + k).classList.toggle('on', k === this.key)); },
+  reset(x, y) { const B = CFG.B * .85; if (x === undefined) { x = (Math.random() * 2 - 1) * B; y = (Math.random() * 2 - 1) * B; }
+    this.hc.reset(this.t, x, y); this.sa.reset(this.t, x, y); this.setRun(false); this.$('verdict').textContent = ''; this.render(); },
+  toggle() { if (!this.run && this.hc.s.it >= this.p.maxIt) return this.reset(); this.setRun(!this.run); },
+  setRun(r) { this.run = r; this.$('btnPlay').textContent = r ? 'Pause' : 'Play'; },
+  adv(n) {
+    for (let i = 0; i < n && this.hc.s.it < this.p.maxIt; i++) { this.hc.step(this.t, this.p); this.sa.step(this.t, this.p); }
+    if (this.hc.s.it >= this.p.maxIt) { this.setRun(false); const a = this.hc.s.be, b = this.sa.s.be;
+      this.$('verdict').textContent = Math.abs(a - b) < .05 ? `Dead heat: both reached about ${a.toFixed(2)}.` : b < a
+        ? `Annealing won (${b.toFixed(2)} vs ${a.toFixed(2)}). Its early gambles helped it leave small dips.` : `Hill Climbing won (${a.toFixed(2)} vs ${b.toFixed(2)}). It started near a good valley. Try New start, then run the Experiment lab.`; }
+    this.render();
+  },
+  render() {
+    const set = (id, v, html) => { this.$(id)[html ? 'innerHTML' : 'textContent'] = v; };
+    [['hc', this.hc, '#ff8a5b', this.c.mh], ['sa', this.sa, '#7be0b0', this.c.ms]].forEach(([k, w, col, mc]) => { const s = w.s;
+      View3D.draw(this.c[k], this.base, s, col);
+      mc.drawImage(this.mini, 0, 0); const m = v => (v + CFG.B) / (2 * CFG.B) * 110; mc.fillStyle = col; mc.strokeStyle = '#fff'; mc.lineWidth = 2;
+      mc.beginPath(); mc.arc(m(s.x), 110 - m(s.y), 5, 0, 7); mc.fill(); mc.stroke();
+      set('it-' + k, s.it); set('cur-' + k, s.e.toFixed(2)); set('best-' + k, s.be.toFixed(2)); set('say-' + k, s.say, true); });
+    const p1 = this.hc.s.pr, p2 = this.sa.s.pr;
+    set('math-hc', p1 ? `ΔE = ${p1.dE.toFixed(3)}<br>accept iff ΔE ≤ 0<br>⇒ ${p1.acc ? 'accepted' : 'rejected'}` : 'waiting for the first step');
+    set('math-sa', p2 ? `ΔE = ${p2.dE.toFixed(3)}, T = ${p2.T.toFixed(3)}<br>P = ${p2.dE <= 0 ? '1 (downhill)' : 'exp(−ΔE/T) = ' + (p2.p * 100).toFixed(1) + '%'}<br>⇒ ${p2.acc ? (p2.gam ? 'accepted uphill (gamble)' : 'accepted') : 'rejected'}` : 'waiting for the first step', true);
+    Charts.race(this.$('chart').getContext('2d'), 400, 240, this.hc.s.hist, this.sa.s.hist);
+    const T = this.p.temp0 * Math.pow(this.p.cool, this.sa.s.it), r = T / this.p.temp0, ph = this.$('temp-phase');
+    Charts.curve(this.$('curve').getContext('2d'), 400, 240, T, this.p.temp0, p2);
+    set('temp-val', T.toFixed(3)); this.$('temp-bar').style.width = Math.max(1, r * 100) + '%';
+    ph.textContent = r > .5 ? 'Hot: wandering widely' : r > .1 ? 'Warm: gambling less, starting to settle' : 'Cold: almost never gambles'; ph.style.color = r > .5 ? '#ff8a5b' : r > .1 ? '#f2b84b' : '#7be0b0';
+  },
+  tick() { if (this.run) this.adv(this.p.speed); },
+};
+App.init();
+(function loop() { App.tick(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
